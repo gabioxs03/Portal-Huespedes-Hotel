@@ -1,0 +1,7 @@
+{
+  "brand": "Sheraton Tucumán",
+  "home": { "eyebrow": "Su estancia, a su ritmo", "welcome": "Bienvenido a la Habitación {{room}}", "invalidRoom": "Acceso de habitación no identificado", "invalidRoomDescription": "Escanee nuevamente el código QR de su habitación para disfrutar de una experiencia personalizada.", "intro": "Todo lo que necesita, a un toque de distancia.", "quickAccess": "Accesos para su estancia" },
+  "actions": { "services": "Servicios", "gastronomy": "Gastronomía", "contacts": "Contactos", "information": "Información General", "social": "Redes Sociales", "casino": "Casino Parque", "parking": "Código de Estacionamiento", "wifi": "Wi-Fi" },
+  "actionDescriptions": { "services": "Spa, bienestar y atención en habitación", "gastronomy": "Sabores para cada momento del día", "contacts": "Conserjería y líneas directas", "information": "Todo sobre el hotel y su entorno", "social": "Nuestra comunidad, novedades y experiencias", "casino": "Entretenimiento a pocos pasos", "parking": "Acceso privado para su vehículo", "wifi": "Conéctese a la red de huéspedes" },
+  "language": "English", "theme": { "light": "Activar modo claro", "dark": "Activar modo oscuro" }
+}

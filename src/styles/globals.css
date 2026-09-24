@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: theme('fontFamily.sans'); background: theme('colors.ivory'); color: theme('colors.ink'); }
+  html.dark, html[data-theme='dark'] { background: #0D1D2A; color: theme('colors.ivory'); }
+  body { margin: 0; min-width: 320px; min-height: 100vh; }
+  button { -webkit-tap-highlight-color: transparent; }
+}
