@@ -54,6 +54,28 @@ export const contentRepository = {
     const { error } = await supabase.from('content_sections').upsert({ id: section.id, slug: section.slug, title_es: section.title.es, title_en: section.title.en || null, description_es: section.description?.es || null, description_en: section.description?.en || null, icon: section.icon, position: section.position, is_published: section.isPublished })
     if (error) throw new Error(error.message)
   },
+  async deleteItem(itemId: string): Promise<void> {
+    if (!supabase) {
+      const content = localContent()
+      content.items = content.items.filter(i => i.id !== itemId)
+      persist(content)
+      return
+    }
+    const { error } = await supabase.from('content_items').delete().eq('id', itemId)
+    if (error) throw new Error(error.message)
+  },
+  async deleteSection(sectionId: string): Promise<void> {
+    if (!supabase) { 
+      const content = localContent()
+      content.sections = content.sections.filter(s => s.id !== sectionId)
+      content.items = content.items.filter(i => i.sectionId !== sectionId)
+      persist(content)
+      return 
+    }
+    await supabase.from('content_items').delete().eq('section_id', sectionId)
+    const { error } = await supabase.from('content_sections').delete().eq('id', sectionId)
+    if (error) throw new Error(error.message)
+  },
   async saveSettings(settings: HotelSettings): Promise<void> {
     if (!supabase) { const content = localContent(); content.settings = settings; persist(content); return }
     const { error } = await supabase.from('hotel_settings').upsert({ id: 1, hotel_name: settings.hotelName, welcome_es: settings.welcomeMessage.es, welcome_en: settings.welcomeMessage.en || null, logo_url: settings.logoUrl || null })

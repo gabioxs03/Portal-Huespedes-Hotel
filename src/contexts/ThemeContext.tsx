@@ -1,26 +1,44 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 export type Theme = 'light' | 'dark'
-interface ThemeContextValue { theme: Theme; toggleTheme: () => void }
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
-const THEME_STORAGE_KEY = 'hotel-aura-theme'
 
-function getInitialTheme(): Theme {
-  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY)
+interface ThemeContextValue { 
+  portalTheme: Theme
+  adminTheme: Theme
+  togglePortalTheme: () => void 
+  toggleAdminTheme: () => void 
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
+
+const PORTAL_THEME_KEY = 'hotel-aura-portal-theme'
+const ADMIN_THEME_KEY = 'hotel-aura-admin-theme'
+
+function getInitialTheme(key: string): Theme {
+  const savedTheme = localStorage.getItem(key)
   if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const [portalTheme, setPortalTheme] = useState<Theme>(() => getInitialTheme(PORTAL_THEME_KEY))
+  const [adminTheme, setAdminTheme] = useState<Theme>(() => getInitialTheme(ADMIN_THEME_KEY))
+
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0D1D2A' : '#F7F5F0')
-    localStorage.setItem(THEME_STORAGE_KEY, theme)
-  }, [theme])
-  const value = useMemo<ThemeContextValue>(() => ({ theme, toggleTheme: () => setTheme(current => current === 'light' ? 'dark' : 'light') }), [theme])
+    localStorage.setItem(PORTAL_THEME_KEY, portalTheme)
+  }, [portalTheme])
+
+  useEffect(() => {
+    localStorage.setItem(ADMIN_THEME_KEY, adminTheme)
+  }, [adminTheme])
+
+  const value = useMemo<ThemeContextValue>(() => ({ 
+    portalTheme, 
+    adminTheme,
+    togglePortalTheme: () => setPortalTheme(current => current === 'light' ? 'dark' : 'light'),
+    toggleAdminTheme: () => setAdminTheme(current => current === 'light' ? 'dark' : 'light')
+  }), [portalTheme, adminTheme])
+
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }
 

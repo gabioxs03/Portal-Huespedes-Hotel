@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { ContentItem, ContentSection, ContentItemType } from '../../interfaces/types'
 import { contentRepository } from '../../lib/contentRepository'
+import { DndContext, closestCenter, DragEndEvent, useSensor, useSensors, PointerSensor, KeyboardSensor, TouchSensor } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { SortableItemRow } from './SortableItemRow'
 
 interface Props {
   section: ContentSection
@@ -11,6 +14,16 @@ interface Props {
 
 export function ItemsManager({ section, items, onSaved, onBack }: Props) {
   const [editingItem, setEditingItem] = useState<ContentItem | null>(null)
+
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => a.position - b.position)
+  }, [items])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
 
   const handleEdit = (item: ContentItem) => {
     setEditingItem(item)
@@ -39,34 +52,56 @@ export function ItemsManager({ section, items, onSaved, onBack }: Props) {
     }
   }
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return
-    if (direction === 'down' && index === items.length - 1) return
-    const newItems = [...items]
-    const targetIndex = direction === 'up' ? index - 1 : index + 1
-    const tempPos = newItems[index].position
-    newItems[index].position = newItems[targetIndex].position
-    newItems[targetIndex].position = tempPos
-    try {
-      await contentRepository.saveItem(newItems[index])
-      await contentRepository.saveItem(newItems[targetIndex])
-      onSaved()
-    } catch(e) {
-      alert('Error reordenando')
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+    
+    if (over && active.id !== over.id) {
+      const oldIndex = sortedItems.findIndex((s) => s.id === active.id)
+      const newIndex = sortedItems.findIndex((s) => s.id === over.id)
+      
+      const reordered = arrayMove(sortedItems, oldIndex, newIndex)
+      
+      const updates = reordered.map((item, index) => {
+        const newPosition = index + 1
+        if (item.position !== newPosition) {
+          return contentRepository.saveItem({ ...item, position: newPosition })
+        }
+        return null
+      }).filter(Boolean)
+      
+      if (updates.length > 0) {
+        try {
+          await Promise.all(updates)
+          onSaved()
+        } catch(e) {
+          alert('Error reordenando ítems')
+        }
+      }
+    }
+  }
+
+  const handleDeleteItem = async (item: ContentItem) => {
+    if (window.confirm(`¿Estás seguro de que deseas eliminar el contenido "${item.title.es}"? Esta acción no se puede deshacer.`)) {
+      try {
+        await contentRepository.deleteItem(item.id)
+        onSaved()
+      } catch (e) {
+        alert('Error al eliminar el contenido')
+      }
     }
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+    <div className="bg-white dark:bg-[#123248] rounded-2xl shadow-luxury border border-stone dark:border-white/10 overflow-hidden">
+      <div className="p-6 border-b border-stone dark:border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-mist/50 dark:bg-white/5">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="text-gray-500 hover:text-gray-800 font-bold px-2 py-1 bg-white border border-gray-200 rounded">←</button>
+          <button onClick={onBack} className="text-steel dark:text-stone hover:text-ink dark:hover:text-ivory font-bold px-4 py-2 bg-white dark:bg-[#0D1D2A] border border-stone dark:border-white/20 rounded-xl shadow-sm transition-colors">← Volver</button>
           <div>
-            <h3 className="text-xl font-bold text-gray-800">Contenidos: {section.title.es}</h3>
+            <h3 className="text-xl font-display font-bold text-ink dark:text-ivory break-words line-clamp-2">Contenidos: {section.title.es}</h3>
           </div>
         </div>
         {!editingItem && (
-          <button onClick={handleCreate} className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-md hover:bg-blue-700 transition-colors shadow-sm text-sm">
+          <button onClick={handleCreate} className="bg-deepblue dark:bg-champagne text-white dark:text-ink font-bold px-5 py-2.5 rounded-xl hover:opacity-90 transition-colors shadow-sm text-sm whitespace-nowrap self-start sm:self-auto shrink-0">
             + Nuevo Ítem
           </button>
         )}
@@ -83,31 +118,22 @@ export function ItemsManager({ section, items, onSaved, onBack }: Props) {
           onCancel={() => setEditingItem(null)}
         />
       ) : (
-        <ul className="divide-y divide-gray-100">
-          {items.length === 0 && <li className="p-8 text-center text-gray-500">No hay contenidos en esta sección.</li>}
-          {items.map((item, index) => (
-            <li key={item.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
-              <div className="flex items-center gap-4">
-                <div className="flex flex-col gap-0.5">
-                  <button disabled={index === 0} onClick={() => handleMove(index, 'up')} className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-xs p-1" title="Subir">▲</button>
-                  <button disabled={index === items.length - 1} onClick={() => handleMove(index, 'down')} className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-xs p-1" title="Bajar">▼</button>
-                </div>
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gray-100 text-lg">{item.icon}</div>
-                <div>
-                  <p className="font-bold text-gray-800">{item.title.es}</p>
-                  <p className="text-xs text-gray-500 truncate max-w-xs">{item.type} • {item.targetUrl}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <button onClick={() => handleTogglePublish(item)} className={`px-3 py-1.5 text-xs font-bold rounded-md border transition-colors ${item.isPublished ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                  {item.isPublished ? 'Visible' : 'Oculto'}
-                </button>
-                <button onClick={() => handleEdit(item)} className="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded-md hover:bg-gray-50 transition-colors text-sm font-semibold">Editar</button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={sortedItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+            <ul className="divide-y divide-stone dark:divide-white/10">
+              {sortedItems.length === 0 && <li className="p-8 text-center text-steel dark:text-stone font-medium">No hay contenidos en esta sección.</li>}
+              {sortedItems.map((item) => (
+                <SortableItemRow
+                  key={item.id}
+                  item={item}
+                  onTogglePublish={handleTogglePublish}
+                  onEdit={handleEdit}
+                  onDelete={handleDeleteItem}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   )
@@ -134,23 +160,26 @@ function ItemForm({ item, onSave, onCancel }: { item: ContentItem, onSave: (i: C
     }
   }
 
+  const inputClasses = "w-full bg-white dark:bg-[#0D1D2A] text-ink dark:text-ivory border border-stone dark:border-white/20 rounded-xl p-3 focus:ring-2 focus:ring-deepblue dark:focus:ring-champagne focus:border-transparent outline-none placeholder-steel/50 dark:placeholder-stone/30"
+  const labelClasses = "block text-sm font-bold text-ink dark:text-ivory mb-1.5"
+
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Título (Español)</label>
-          <input type="text" required value={formData.title.es} onChange={e => setFormData({...formData, title: {...formData.title, es: e.target.value}})} className="w-full border border-gray-300 rounded p-2.5 focus:ring-2 focus:ring-blue-500" />
+          <label className={labelClasses}>Título (Español)</label>
+          <input type="text" required value={formData.title.es} onChange={e => setFormData({...formData, title: {...formData.title, es: e.target.value}})} className={inputClasses} />
         </div>
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Título (Inglés - Opcional)</label>
-          <input type="text" value={formData.title.en || ''} onChange={e => setFormData({...formData, title: {...formData.title, en: e.target.value}})} className="w-full border border-gray-300 rounded p-2.5 focus:ring-2 focus:ring-blue-500" />
+          <label className={labelClasses}>Título (Inglés - Opcional)</label>
+          <input type="text" value={formData.title.en || ''} onChange={e => setFormData({...formData, title: {...formData.title, en: e.target.value}})} className={inputClasses} />
         </div>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Tipo de Contenido</label>
-          <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as ContentItemType})} className="w-full border border-gray-300 rounded p-2.5 focus:ring-2 focus:ring-blue-500">
+          <label className={labelClasses}>Tipo de Contenido</label>
+          <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as ContentItemType})} className={inputClasses}>
             <option value="external_link">Enlace Web</option>
             <option value="document">Documento (PDF)</option>
             <option value="whatsapp">WhatsApp</option>
@@ -160,27 +189,27 @@ function ItemForm({ item, onSave, onCancel }: { item: ContentItem, onSave: (i: C
           </select>
         </div>
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Icono (Emoji)</label>
-          <input type="text" required value={formData.icon} onChange={e => setFormData({...formData, icon: e.target.value})} className="w-full border border-gray-300 rounded p-2.5 focus:ring-2 focus:ring-blue-500" />
+          <label className={labelClasses}>Icono (Emoji)</label>
+          <input type="text" required value={formData.icon} onChange={e => setFormData({...formData, icon: e.target.value})} className={inputClasses} />
         </div>
       </div>
 
       {formData.type === 'document' ? (
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Archivo PDF</label>
-          <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} className="w-full border border-gray-300 rounded p-2 text-sm" required={!formData.targetUrl} />
-          {formData.targetUrl && !file && <p className="text-xs text-gray-500 mt-1">Ya hay un documento subido. Sube uno nuevo para reemplazarlo.</p>}
+          <label className={labelClasses}>Archivo PDF</label>
+          <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} className={`${inputClasses} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-mist dark:file:bg-white/10 file:text-deepblue dark:file:text-champagne hover:file:bg-stone dark:hover:file:bg-white/20`} required={!formData.targetUrl} />
+          {formData.targetUrl && !file && <p className="text-xs text-steel dark:text-stone mt-2 font-medium">Ya hay un documento subido. Sube uno nuevo para reemplazarlo.</p>}
         </div>
       ) : (
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Destino (URL, Teléfono, Email, etc.)</label>
-          <input type="text" required value={formData.targetUrl} onChange={e => setFormData({...formData, targetUrl: e.target.value})} placeholder={formData.type === 'whatsapp' ? 'https://wa.me/...' : formData.type === 'phone' ? 'tel:...' : formData.type === 'email' ? 'mailto:...' : 'https://...'} className="w-full border border-gray-300 rounded p-2.5 focus:ring-2 focus:ring-blue-500" />
+          <label className={labelClasses}>Destino (URL, Teléfono, Email, etc.)</label>
+          <input type="text" required value={formData.targetUrl} onChange={e => setFormData({...formData, targetUrl: e.target.value})} placeholder={formData.type === 'whatsapp' ? 'https://wa.me/...' : formData.type === 'phone' ? 'tel:...' : formData.type === 'email' ? 'mailto:...' : 'https://...'} className={inputClasses} />
         </div>
       )}
 
-      <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
-        <button type="button" onClick={onCancel} className="px-5 py-2 text-gray-600 hover:bg-gray-100 rounded-md font-semibold transition-colors">Cancelar</button>
-        <button type="submit" disabled={isSaving} className="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
+      <div className="pt-6 border-t border-stone dark:border-white/10 flex items-center justify-end gap-3 flex-wrap">
+        <button type="button" onClick={onCancel} className="px-5 py-3 text-steel dark:text-stone hover:bg-mist dark:hover:bg-white/5 rounded-xl font-bold transition-colors w-full sm:w-auto">Cancelar</button>
+        <button type="submit" disabled={isSaving} className="bg-deepblue dark:bg-champagne text-white dark:text-ink font-bold py-3 px-6 rounded-xl hover:opacity-90 transition-colors disabled:opacity-50 w-full sm:w-auto">
           {isSaving ? 'Guardando...' : 'Guardar Ítem'}
         </button>
       </div>

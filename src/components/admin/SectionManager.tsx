@@ -1,5 +1,9 @@
+import { useMemo, useState } from 'react'
 import type { ContentSection } from '../../interfaces/types'
 import { contentRepository } from '../../lib/contentRepository'
+import { DndContext, closestCenter, DragEndEvent, useSensor, useSensors, PointerSensor, KeyboardSensor, TouchSensor } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { SortableSectionItem } from './SortableSectionItem'
 
 interface Props {
   sections: ContentSection[]
@@ -7,7 +11,31 @@ interface Props {
   onSelectSection: (section: ContentSection) => void
 }
 
+function generateSlug(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '')
+}
+
 export function SectionManager({ sections, onSaved, onSelectSection }: Props) {
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newSectionTitle, setNewSectionTitle] = useState('')
+  const [newSectionIcon, setNewSectionIcon] = useState('📁')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const sortedSections = useMemo(() => {
+    return [...sections].sort((a, b) => a.position - b.position)
+  }, [sections])
+
   const handleTogglePublish = async (section: ContentSection) => {
     try {
       await contentRepository.saveSection({ ...section, isPublished: !section.isPublished })
@@ -17,65 +45,167 @@ export function SectionManager({ sections, onSaved, onSelectSection }: Props) {
     }
   }
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return
-    if (direction === 'down' && index === sections.length - 1) return
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
     
-    const newSections = [...sections]
-    const targetIndex = direction === 'up' ? index - 1 : index + 1
-    
-    // Swap positions
-    const tempPos = newSections[index].position
-    newSections[index].position = newSections[targetIndex].position
-    newSections[targetIndex].position = tempPos
+    if (over && active.id !== over.id) {
+      const oldIndex = sortedSections.findIndex((s) => s.id === active.id)
+      const newIndex = sortedSections.findIndex((s) => s.id === over.id)
+      
+      const reordered = arrayMove(sortedSections, oldIndex, newIndex)
+      
+      const updates = reordered.map((section, index) => {
+        const newPosition = index + 1
+        if (section.position !== newPosition) {
+          return contentRepository.saveSection({ ...section, position: newPosition })
+        }
+        return null
+      }).filter(Boolean)
+      
+      if (updates.length > 0) {
+        try {
+          await Promise.all(updates)
+          onSaved()
+        } catch(e) {
+          alert('Error reordenando secciones')
+        }
+      }
+    }
+  }
 
+  const handleCreateSection = async (proceedToContent: boolean) => {
+    if (!newSectionTitle.trim()) return
+    setIsSaving(true)
     try {
-      await contentRepository.saveSection(newSections[index])
-      await contentRepository.saveSection(newSections[targetIndex])
+      const newSection: ContentSection = {
+        id: crypto.randomUUID(),
+        slug: generateSlug(newSectionTitle),
+        title: { es: newSectionTitle },
+        icon: newSectionIcon,
+        position: sections.length + 1,
+        isPublished: true
+      }
+      
+      await contentRepository.saveSection(newSection)
       onSaved()
-    } catch(e) {
-      alert('Error reordenando secciones')
+      
+      setShowAddModal(false)
+      setNewSectionTitle('')
+      setNewSectionIcon('📁')
+      
+      if (proceedToContent) {
+        onSelectSection(newSection)
+      }
+    } catch (e) {
+      alert('Error creando la sección')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDeleteSection = async (section: ContentSection) => {
+    if (window.confirm(`¿Estás seguro de que deseas eliminar la sección "${section.title.es}" y todo su contenido? Esta acción no se puede deshacer.`)) {
+      try {
+        await contentRepository.deleteSection(section.id)
+        onSaved()
+      } catch (e) {
+        alert('Error al eliminar la sección')
+      }
     }
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="p-6 border-b border-gray-100 bg-gray-50/50">
-        <h3 className="text-xl font-bold text-gray-800">Secciones del Portal</h3>
-        <p className="text-sm text-gray-500 mt-1">Organiza y decide qué áreas son visibles para los huéspedes.</p>
+    <>
+      <div className="bg-white dark:bg-[#123248] rounded-2xl shadow-luxury border border-stone dark:border-white/10 overflow-hidden relative">
+        <div className="p-6 border-b border-stone dark:border-white/10 bg-mist/50 dark:bg-white/5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+          <div>
+            <h3 className="text-xl font-display font-bold text-ink dark:text-ivory">Secciones del Portal</h3>
+            <p className="text-sm text-steel dark:text-stone mt-1">Organiza y decide qué áreas son visibles para los huéspedes. Arrastra las secciones usando el icono ☰ para reordenarlas.</p>
+          </div>
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="bg-deepblue dark:bg-champagne text-white dark:text-ink px-5 py-2.5 rounded-xl hover:opacity-90 transition-colors font-bold shadow-sm text-sm whitespace-nowrap shrink-0"
+          >
+            + Agregar Sección
+          </button>
+        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={sortedSections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+            <ul className="divide-y divide-stone dark:divide-white/10">
+              {sortedSections.length === 0 ? (
+                <li className="p-8 text-center text-steel dark:text-stone font-medium">No hay secciones todavía.</li>
+              ) : (
+                sortedSections.map((section) => (
+                  <SortableSectionItem
+                    key={section.id}
+                    section={section}
+                    onTogglePublish={handleTogglePublish}
+                    onSelectSection={onSelectSection}
+                    onDeleteSection={handleDeleteSection}
+                  />
+                ))
+              )}
+            </ul>
+          </SortableContext>
+        </DndContext>
       </div>
-      <ul className="divide-y divide-gray-100">
-        {sections.map((section, index) => (
-          <li key={section.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col gap-0.5">
-                <button disabled={index === 0} onClick={() => handleMove(index, 'up')} className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-xs p-1" title="Subir">▲</button>
-                <button disabled={index === sections.length - 1} onClick={() => handleMove(index, 'down')} className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-xs p-1" title="Bajar">▼</button>
-              </div>
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-50 font-display text-xl text-blue-600">{section.icon}</div>
-              <div>
-                <p className="font-bold text-gray-800">{section.title.es}</p>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">/{section.slug}</p>
-              </div>
-            </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-ink/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#123248] rounded-2xl shadow-luxury max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200 border border-stone dark:border-white/10">
+            <h3 className="text-2xl font-display font-bold text-ink dark:text-champagne mb-5">Nueva Sección</h3>
             
-            <div className="flex items-center gap-3">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-ink dark:text-ivory mb-1.5">Nombre de la sección *</label>
+                <input 
+                  type="text" 
+                  autoFocus
+                  required
+                  placeholder="Ej: Spa & Wellness"
+                  className="w-full bg-white dark:bg-[#0D1D2A] text-ink dark:text-ivory border border-stone dark:border-white/20 rounded-xl p-3 focus:ring-2 focus:ring-deepblue dark:focus:ring-champagne focus:border-transparent outline-none placeholder-steel/50 dark:placeholder-stone/30"
+                  value={newSectionTitle} 
+                  onChange={e => setNewSectionTitle(e.target.value)} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-ink dark:text-ivory mb-1.5">Icono (Emoji)</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: 💆‍♀️"
+                  className="w-full bg-white dark:bg-[#0D1D2A] text-ink dark:text-ivory border border-stone dark:border-white/20 rounded-xl p-3 focus:ring-2 focus:ring-deepblue dark:focus:ring-champagne focus:border-transparent outline-none placeholder-steel/50 dark:placeholder-stone/30"
+                  value={newSectionIcon} 
+                  onChange={e => setNewSectionIcon(e.target.value)} 
+                />
+              </div>
+            </div>
+
+            <div className="mt-8 flex flex-col gap-3">
               <button 
-                onClick={() => handleTogglePublish(section)} 
-                className={`px-3 py-1.5 text-xs font-bold rounded-md border transition-colors ${section.isPublished ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'}`}
+                disabled={isSaving || !newSectionTitle.trim()}
+                onClick={() => handleCreateSection(true)} 
+                className="w-full bg-deepblue dark:bg-champagne text-white dark:text-ink font-bold py-3 px-4 rounded-xl hover:opacity-90 disabled:opacity-50 transition-colors"
               >
-                {section.isPublished ? 'Visible' : 'Oculto'}
+                Crear y Añadir Contenido
               </button>
               <button 
-                onClick={() => onSelectSection(section)}
-                className="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded-md hover:bg-gray-50 transition-colors text-sm font-semibold shadow-sm"
+                disabled={isSaving || !newSectionTitle.trim()}
+                onClick={() => handleCreateSection(false)} 
+                className="w-full bg-white dark:bg-transparent border border-stone dark:border-white/20 text-ink dark:text-ivory font-bold py-3 px-4 rounded-xl hover:bg-mist dark:hover:bg-white/5 disabled:opacity-50 transition-colors"
               >
-                Contenidos →
+                Crear sección vacía
+              </button>
+              <button 
+                disabled={isSaving}
+                onClick={() => setShowAddModal(false)} 
+                className="w-full text-steel dark:text-stone font-semibold py-2 px-4 rounded-xl hover:bg-mist dark:hover:bg-white/5 transition-colors mt-1"
+              >
+                Cancelar
               </button>
             </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

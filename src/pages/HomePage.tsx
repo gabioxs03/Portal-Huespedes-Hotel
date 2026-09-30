@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ActionCard } from '../components/ActionCard'
 import { useRoom } from '../contexts/RoomContext'
@@ -14,9 +14,16 @@ const actions = [
 export function HomePage() {
   const { t, i18n } = useTranslation()
   const { roomNumber, isValidRoom } = useRoom()
-  const { theme, toggleTheme } = useTheme()
+  const { portalTheme: theme, togglePortalTheme: toggleTheme } = useTheme()
   const [selectedAction, setSelectedAction] = useState('services')
   const switchLanguage = () => { void i18n.changeLanguage(i18n.resolvedLanguage?.startsWith('es') ? 'en' : 'es') }
+  
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0D1D2A' : '#F7F5F0')
+  }, [theme])
 
   return <main className="min-h-screen bg-ivory text-ink transition-colors duration-300 dark:bg-[#0D1D2A] dark:text-ivory"><div className="mx-auto max-w-md px-5 pb-10 pt-[max(1.25rem,env(safe-area-inset-top))]">
     <header className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full border border-champagne/70 bg-ink font-display text-xl font-semibold text-champagne shadow-sm dark:bg-champagne dark:text-ink">S</span><span className="font-display text-2xl font-semibold tracking-tight">{t('brand')}</span></div><div className="flex items-center gap-2"><button type="button" onClick={toggleTheme} aria-label={t(`theme.${theme === 'light' ? 'dark' : 'light'}`)} className="grid h-9 w-9 place-items-center rounded-full border border-stone bg-white text-deepblue transition hover:border-champagne dark:border-white/15 dark:bg-white/5 dark:text-champagne">{theme === 'light' ? '☾' : '☀'}</button><button type="button" onClick={switchLanguage} className="rounded-full border border-stone bg-white px-3 py-2 text-xs font-bold tracking-wide text-deepblue transition hover:border-champagne dark:border-white/15 dark:bg-white/5 dark:text-ivory" aria-label={t('language')}>{t('language')}</button></div></header>
